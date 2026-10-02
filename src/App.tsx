@@ -22,11 +22,18 @@ import {
   Zap,
 } from "lucide-react";
 
+import LocationMap from "./LocationMap";
+
 type Service = {
   name: string;
   desc: string;
   icon: React.ReactNode;
   eta: string;
+};
+
+type Coordinates = {
+  latitude: number;
+  longitude: number;
 };
 
 const services: Service[] = [
@@ -92,10 +99,17 @@ const providers = [
 export default function App() {
   const [step, setStep] = useState(0);
   const [service, setService] = useState<Service | null>(null);
+
   const [location, setLocation] = useState(
     "Enter your location or use GPS"
   );
+
+  const [coordinates, setCoordinates] =
+    useState<Coordinates | null>(null);
+
   const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
+
   const [accepted, setAccepted] = useState(false);
   const [menu, setMenu] = useState(false);
 
@@ -121,38 +135,74 @@ export default function App() {
   }
 
   function detectLocation() {
-    setLocating(true);
+    setLocationError("");
 
     if (!navigator.geolocation) {
-      setLocation("Geolocation is not supported by this browser.");
-      setLocating(false);
+      setLocationError(
+        "Geolocation is not supported by your browser."
+      );
       return;
     }
 
+    setLocating(true);
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const latitude = position.coords.latitude.toFixed(5);
-        const longitude = position.coords.longitude.toFixed(5);
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
 
-        setLocation(`GPS: ${latitude}, ${longitude}`);
-        setLocating(false);
-      },
-      () => {
+        setCoordinates({
+          latitude,
+          longitude,
+        });
+
         setLocation(
-          "Location permission unavailable — enter your location manually"
+          `GPS: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
         );
+
         setLocating(false);
+        setLocationError("");
+      },
+      (error) => {
+        setLocating(false);
+
+        if (error.code === error.PERMISSION_DENIED) {
+          setLocationError(
+            "Location permission was denied. Please allow location access in your browser."
+          );
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          setLocationError(
+            "Your current location could not be detected."
+          );
+        } else if (error.code === error.TIMEOUT) {
+          setLocationError(
+            "Location request timed out. Please try again."
+          );
+        } else {
+          setLocationError(
+            "We could not access your current location."
+          );
+        }
       },
       {
         enableHighAccuracy: true,
-        timeout: 5000,
+        timeout: 10000,
+        maximumAge: 0,
       }
     );
   }
 
+  function resetRequest() {
+    setService(null);
+    setStep(0);
+    setAccepted(false);
+    setCoordinates(null);
+    setLocation("Enter your location or use GPS");
+    setLocationError("");
+  }
+
   return (
     <div className="app">
-      {/* NAVIGATION */}
       <nav>
         <div className="brand">
           <span>
@@ -256,7 +306,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* MAP PREVIEW */}
           <div className="liveCard">
             <div className="liveHead">
               <div>
@@ -346,7 +395,9 @@ export default function App() {
                 key={item.name}
                 onClick={() => choose(item)}
               >
-                <div className="serviceIcon">{item.icon}</div>
+                <div className="serviceIcon">
+                  {item.icon}
+                </div>
 
                 <div>
                   <b>{item.name}</b>
@@ -376,11 +427,7 @@ export default function App() {
 
               <button
                 className="close"
-                onClick={() => {
-                  setService(null);
-                  setStep(0);
-                  setAccepted(false);
-                }}
+                onClick={resetRequest}
               >
                 <X />
               </button>
@@ -391,7 +438,9 @@ export default function App() {
             </div>
 
             <div className="stepLabels">
-              <span className="active">Problem</span>
+              <span className="active">
+                Problem
+              </span>
 
               <span className={step >= 1 ? "active" : ""}>
                 Location
@@ -406,7 +455,7 @@ export default function App() {
               </span>
             </div>
 
-            {/* LOCATION STEP */}
+            {/* LOCATION */}
             {step === 1 && (
               <div className="flowGrid">
                 <div className="flowPanel">
@@ -424,13 +473,14 @@ export default function App() {
                   <h3>Where is your vehicle?</h3>
 
                   <p>
-                    Use your current GPS location or enter a nearby
-                    landmark or address.
+                    Use your current GPS location or enter a
+                    nearby landmark or address.
                   </p>
 
                   <button
                     className="locationButton"
                     onClick={detectLocation}
+                    disabled={locating}
                   >
                     <LocateFixed />
 
@@ -438,46 +488,98 @@ export default function App() {
                       <b>
                         {locating
                           ? "Detecting your location..."
+                          : coordinates
+                          ? "Location detected"
                           : "Use my current location"}
                       </b>
 
                       <span>
-                        Best option for faster assistance
+                        {coordinates
+                          ? "Your GPS position is ready"
+                          : "Best option for faster assistance"}
                       </span>
                     </div>
                   </button>
 
-                  <label>LOCATION OR LANDMARK</label>
+                  {locationError && (
+                    <p
+                      style={{
+                        marginTop: "12px",
+                        color: "#dc2626",
+                        fontSize: "14px",
+                      }}
+                    >
+                      {locationError}
+                    </p>
+                  )}
+
+                  <label>
+                    LOCATION OR LANDMARK
+                  </label>
 
                   <div className="input">
                     <MapPin />
 
                     <input
                       value={location}
-                      onChange={(event) =>
-                        setLocation(event.target.value)
-                      }
+                      onChange={(event) => {
+                        setLocation(event.target.value);
+
+                        if (coordinates) {
+                          setCoordinates(null);
+                        }
+                      }}
                     />
                   </div>
 
-                  <div className="mapLarge">
-                    <div className="road lr1" />
-                    <div className="road lr2" />
-
-                    <div className="pulsePin">
-                      <MapPin />
+                  {/* REAL MAP */}
+                  {coordinates ? (
+                    <div
+                      style={{
+                        marginTop: "18px",
+                        marginBottom: "18px",
+                      }}
+                    >
+                      <LocationMap
+                        latitude={coordinates.latitude}
+                        longitude={coordinates.longitude}
+                      />
                     </div>
+                  ) : (
+                    <div className="mapLarge">
+                      <div className="road lr1" />
+                      <div className="road lr2" />
 
-                    <div className="mapControls">
-                      +
-                      <hr />
-                      −
+                      <div className="pulsePin">
+                        <MapPin />
+                      </div>
+
+                      <span className="mapHint">
+                        Use GPS to display your real location
+                        on the map
+                      </span>
                     </div>
+                  )}
 
-                    <span className="mapHint">
-                      Map preview — real map integration comes next
-                    </span>
-                  </div>
+                  {coordinates && (
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "10px",
+                        alignItems: "center",
+                        marginBottom: "18px",
+                        fontSize: "13px",
+                      }}
+                    >
+                      <CheckCircle2
+                        size={18}
+                      />
+
+                      <span>
+                        GPS location detected successfully
+                      </span>
+                    </div>
+                  )}
 
                   <button
                     className="primary wide"
@@ -495,7 +597,7 @@ export default function App() {
               </div>
             )}
 
-            {/* PROVIDER STEP */}
+            {/* PROVIDERS */}
             {step === 2 && (
               <div className="flowGrid">
                 <div className="flowPanel">
@@ -509,7 +611,10 @@ export default function App() {
 
                   <div className="providerTitle">
                     <div>
-                      <h3>3 providers available nearby</h3>
+                      <h3>
+                        3 providers available nearby
+                      </h3>
+
                       <p>
                         Sorted by estimated arrival time.
                       </p>
@@ -522,54 +627,68 @@ export default function App() {
                   </div>
 
                   <div className="providerList">
-                    {providers.map((provider, index) => (
-                      <div
-                        className={
-                          "provider " +
-                          (index === 0 ? "recommended" : "")
-                        }
-                        key={provider.name}
-                      >
-                        {index === 0 && (
-                          <span className="recommend">
-                            FASTEST
-                          </span>
-                        )}
+                    {providers.map(
+                      (provider, index) => (
+                        <div
+                          className={
+                            "provider " +
+                            (index === 0
+                              ? "recommended"
+                              : "")
+                          }
+                          key={provider.name}
+                        >
+                          {index === 0 && (
+                            <span className="recommend">
+                              FASTEST
+                            </span>
+                          )}
 
-                        <div className="providerLogo">
-                          <Wrench />
-                        </div>
+                          <div className="providerLogo">
+                            <Wrench />
+                          </div>
 
-                        <div className="providerInfo">
-                          <b>{provider.name}</b>
-                          <span>{provider.kind}</span>
+                          <div className="providerInfo">
+                            <b>
+                              {provider.name}
+                            </b>
 
-                          <div>
-                            <Star
-                              size={14}
-                              fill="currentColor"
-                            />
-                            {provider.rating}
-                            <i>•</i>
-                            {provider.jobs} jobs
+                            <span>
+                              {provider.kind}
+                            </span>
+
+                            <div>
+                              <Star
+                                size={14}
+                                fill="currentColor"
+                              />
+                              {provider.rating}
+                              <i>•</i>
+                              {provider.jobs} jobs
+                            </div>
+                          </div>
+
+                          <div className="providerMeta">
+                            <b>
+                              {provider.eta}
+                            </b>
+
+                            <span>
+                              {provider.distance}
+                            </span>
+
+                            <button
+                              onClick={() => {
+                                setStep(3);
+                                setAccepted(true);
+                              }}
+                            >
+                              Select
+                            </button>
                           </div>
                         </div>
-
-                        <div className="providerMeta">
-                          <b>{provider.eta}</b>
-                          <span>{provider.distance}</span>
-
-                          <button
-                            onClick={() => {
-                              setStep(3);
-                              setAccepted(true);
-                            }}
-                          >
-                            Select
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    )}
                   </div>
                 </div>
 
@@ -580,7 +699,7 @@ export default function App() {
               </div>
             )}
 
-            {/* CONFIRMED STEP */}
+            {/* CONFIRMED */}
             {step === 3 && (
               <div className="confirmed">
                 <div className="confirmIcon">
@@ -597,8 +716,8 @@ export default function App() {
                 </h2>
 
                 <p>
-                  Your provider has received your vehicle location
-                  and service details.
+                  Your provider has received your vehicle
+                  location and service details.
                 </p>
 
                 <div className="tracking">
@@ -619,18 +738,31 @@ export default function App() {
 
                   <div className="trackInfo">
                     <div className="eta">
-                      <small>ESTIMATED ARRIVAL</small>
-                      <b>{activeProvider.eta}</b>
-                      <span>{activeProvider.distance} away</span>
+                      <small>
+                        ESTIMATED ARRIVAL
+                      </small>
+
+                      <b>
+                        {activeProvider.eta}
+                      </b>
+
+                      <span>
+                        {activeProvider.distance} away
+                      </span>
                     </div>
 
                     <hr />
 
                     <div className="tech">
-                      <div className="avatar">NA</div>
+                      <div className="avatar">
+                        NA
+                      </div>
 
                       <div>
-                        <b>{activeProvider.name}</b>
+                        <b>
+                          {activeProvider.name}
+                        </b>
+
                         <span>
                           Roadside technician • ★{" "}
                           {activeProvider.rating}
@@ -651,7 +783,8 @@ export default function App() {
                     </div>
 
                     <small className="requestId">
-                      Request #RA-1048 • {service.name}
+                      Request #RA-1048 •{" "}
+                      {service.name}
                     </small>
                   </div>
                 </div>
@@ -664,37 +797,47 @@ export default function App() {
         <section id="how" className="how">
           <div className="sectionhead">
             <span>HOW IT WORKS</span>
-            <h2>From breakdown to back on the road.</h2>
+
+            <h2>
+              From breakdown to back on the road.
+            </h2>
           </div>
 
           <div className="howGrid">
             <div>
               <i>01</i>
               <LocateFixed />
+
               <h3>Share your location</h3>
+
               <p>
-                Use GPS or enter exactly where your vehicle
-                stopped.
+                Use GPS or enter exactly where your
+                vehicle stopped.
               </p>
             </div>
 
             <div>
               <i>02</i>
               <Wrench />
+
               <h3>Choose the problem</h3>
+
               <p>
-                Tell us whether you need battery, tire, towing,
-                electrical or mechanical assistance.
+                Tell us whether you need battery,
+                tire, towing, electrical or
+                mechanical assistance.
               </p>
             </div>
 
             <div>
               <i>03</i>
               <Navigation />
+
               <h3>Track your provider</h3>
+
               <p>
-                Select nearby help and follow the request until
-                assistance arrives.
+                Select nearby help and follow the
+                request until assistance arrives.
               </p>
             </div>
           </div>
@@ -703,17 +846,19 @@ export default function App() {
         {/* GARAGE */}
         <section id="garage" className="garage">
           <div className="garageCopy">
-            <span>FOR GARAGES & SERVICE PROVIDERS</span>
+            <span>
+              FOR GARAGES & SERVICE PROVIDERS
+            </span>
 
             <h2>
-              One dashboard for your customers, vehicles and
-              roadside jobs.
+              One dashboard for your customers,
+              vehicles and roadside jobs.
             </h2>
 
             <p>
-              RoadlyAssist gives garages a simple workspace to
-              manage daily operations and receive nearby
-              assistance requests.
+              RoadlyAssist gives garages a simple
+              workspace to manage daily operations
+              and receive nearby assistance requests.
             </p>
 
             <div className="featureList">
@@ -747,7 +892,10 @@ export default function App() {
           <div className="dashboard">
             <div className="dashHead">
               <div>
-                <small>GARAGE DASHBOARD</small>
+                <small>
+                  GARAGE DASHBOARD
+                </small>
+
                 <b>Good afternoon</b>
               </div>
 
@@ -758,7 +906,9 @@ export default function App() {
               <div>
                 <span>Today's jobs</span>
                 <b>08</b>
-                <small>+2 from yesterday</small>
+                <small>
+                  +2 from yesterday
+                </small>
               </div>
 
               <div>
@@ -770,7 +920,9 @@ export default function App() {
               <div>
                 <span>Customers</span>
                 <b>126</b>
-                <small>+8 this month</small>
+                <small>
+                  +8 this month
+                </small>
               </div>
             </div>
 
@@ -779,9 +931,13 @@ export default function App() {
                 <span className="dot" />
 
                 <div>
-                  <b>New roadside request</b>
+                  <b>
+                    New roadside request
+                  </b>
+
                   <small>
-                    BMW 320i • Battery issue • 1.8 km
+                    BMW 320i • Battery issue •
+                    1.8 km
                   </small>
                 </div>
 
@@ -795,7 +951,9 @@ export default function App() {
 
                 <div>
                   <b>Mercedes C200</b>
-                  <small>Oil & filter change</small>
+                  <small>
+                    Oil & filter change
+                  </small>
                 </div>
 
                 <span>10:30 AM</span>
@@ -809,11 +967,16 @@ export default function App() {
 
                 <div>
                   <b>Toyota Yaris</b>
-                  <small>Brake inspection</small>
+                  <small>
+                    Brake inspection
+                  </small>
                 </div>
 
                 <span>12:00 PM</span>
-                <em className="scheduled">Scheduled</em>
+
+                <em className="scheduled">
+                  Scheduled
+                </em>
               </div>
             </div>
           </div>
@@ -832,11 +995,13 @@ export default function App() {
         </div>
 
         <p>
-          Roadside assistance and garage management — built for a
-          better driver experience.
+          Roadside assistance and garage management
+          — built for a better driver experience.
         </p>
 
-        <small>Prototype MVP • React + TypeScript</small>
+        <small>
+          Prototype MVP • React + TypeScript
+        </small>
       </footer>
     </div>
   );
@@ -875,7 +1040,9 @@ function RequestSummary({
 
         <span>
           <b>BMW 320i</b>
-          <small>2018 • Black • 95,420 km</small>
+          <small>
+            2018 • Black • 95,420 km
+          </small>
         </span>
 
         <ChevronRight />
@@ -893,8 +1060,10 @@ function RequestSummary({
 
         <span>
           <b>Your request is private</b>
+
           <small>
-            Location is shared only with the selected provider.
+            Location is shared only with the
+            selected provider.
           </small>
         </span>
       </div>
